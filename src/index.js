@@ -14,6 +14,13 @@ const {
   getUsersInRoom,
 } = require("./utils/users.js");
 
+const {
+  createRoomSpace,
+  addMessageToRoom,
+  getOldMessageOfRoom,
+  deleteOldRoomMessage,
+} = require("./utils/messageStore");
+
 const app = express();
 const server = http.createServer(app);
 const io = socketio(server);
@@ -39,14 +46,48 @@ io.on("connection", (socket) => {
       return callback(error);
     }
 
+    // creating a room space in message storing object
+    createRoomSpace(user.room);
+
     socket.join(user.room);
-    socket.emit("message", generateMessage("Welcome!", "From The Romm"));
-    socket.broadcast
-      .to(user.room)
-      .emit(
+
+    const oldMessageToSend = getOldMessageOfRoom(user.room);
+
+    if (oldMessageToSend.length !== 0) {
+      socket.emit(
         "message",
-        generateMessage(`${user.username} has joined!`, `From The Room`)
+        generateMessage(
+          "Old Messages of the Room Starting From Here...",
+          "From The Room"
+        )
       );
+
+      oldMessageToSend.forEach((obj) => {
+        socket.emit("message", obj);
+      });
+
+      socket.emit(
+        "message",
+        generateMessage(
+          "Old Messages of the Room Ending  From Here...",
+          "From The Room"
+        )
+      );
+    }
+
+    socket.emit(
+      "message",
+      generateMessage("Welcome To The Room", "From The Room")
+    );
+
+    const generatedObj = generateMessage(
+      `${user.username} has joined!`,
+      `From The Room`
+    );
+
+    addMessageToRoom(user.room, generatedObj);
+
+    socket.broadcast.to(user.room).emit("message", generatedObj);
 
     io.to(user.room).emit("roomData", {
       room: user.room,
@@ -65,19 +106,25 @@ io.on("connection", (socket) => {
 
     const { room, username } = getUser(socket.id);
 
-    io.to(room).emit("message", generateMessage(message, username));
+    const messageObj = generateMessage(message, username);
+
+    addMessageToRoom(room, messageObj);
+
+    io.to(room).emit("message", messageObj);
     callback();
   });
 
   socket.on("sendLocation", (coords, callback) => {
     const { room, username } = getUser(socket.id);
-    io.to(room).emit(
-      "locationMessage",
-      generateLocationMessage(
-        `https://google.com/maps?q=${coords.latitude},${coords.longitude}`,
-        username
-      )
+
+    const locationObject = generateLocationMessage(
+      `https://google.com/maps?q=${coords.latitude},${coords.longitude}`,
+      username
     );
+
+    addMessageToRoom(room, locationObject);
+
+    io.to(room).emit("locationMessage", locationObject);
     callback();
   });
 
@@ -94,6 +141,10 @@ io.on("connection", (socket) => {
         room: user.room,
         users: getUsersInRoom(user.room),
       });
+
+      if (getUsersInRoom(user.room).length === 0) {
+        deleteOldRoomMessage(user.room);
+      }
     }
   });
 });
